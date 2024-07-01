@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Lobby System</title>
+    <style>
+        #playGameOKButton, #playGameNoButton, #playGameHeading, #countdownDisplay {
+            display: none;
+        }
+        #otherScreenNotification {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Firebase Lobby System</h1>
+    <div id="lobbySection">
+        <h2>Lobby</h2>
+        <p id="lobbyStatus">Status: Joining Lobby...</p>
+        <div id="lobbyUsers">
+            <h3>Users in Lobby:</h3>
+            <ul id="usersList"></ul>
+        </div>
+        <button id="joinLobbyButton">Join Lobby</button>
+        <button id="leaveLobbyButton">Leave Lobby</button>
+    </div>
+
+    <div id="displaySection">
+        <h2 id="playGameHeading">Want to play a game with ...?</h2>
+        <ul id="gameUsersList"></ul>
+        <button id="playGameOKButton">OK</button>
+        <button id="playGameNoButton">No</button>
+        <p id="countdownDisplay"></p>
+        <p id="otherScreenNotification"></p>
+    </div>
+
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
+        import { getDatabase, ref, set, onValue, push, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAwlzvEV2Rz3Qg65ldJS9szYSrhIk7mmJc",
+            authDomain: "demolobby-e555b.firebaseapp.com",
+            databaseURL: "https://demolobby-e555b-default-rtdb.firebaseio.com",
+            projectId: "demolobby-e555b",
+            storageBucket: "demolobby-e555b.appspot.com",
+            messagingSenderId: "660754854141",
+            appId: "1:660754854141:web:9aa05a8ac9a7df1f57ce94",
+            measurementId: "G-6F3WBV9HHZ"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const database = getDatabase(app);
+        const auth = getAuth();
+
+        let userUid = null;
+        let userKey = null;
+        let countdownInterval;
+
+        // Anonymous Authentication
+        signInAnonymously(auth)
+            .then((userCredential) => {
+                userUid = userCredential.user.uid;
+                console.log('Signed in anonymously:', userUid);
+                updateLobbyStatus('Joining Lobby...');
+                joinLobby();
+            })
+            .catch((error) => {
+                console.error('Authentication failed:', error);
+            });
+
+        // onAuthStateChanged callback
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userUid = user.uid;
+                console.log('User signed in:', userUid);
+                monitorLobbyUsers();
+                monitorCountdown();
+            } else {
+                userUid = null;
+                console.log('No user signed in');
+            }
+        });
+
+        // Function to join the lobby
+        const joinLobby = () => {
+            const lobbyRef = ref(database, 'lobbies/default/users');
+            const userRef = push(lobbyRef);
+            userKey = userRef.key;
+            set(userRef, {
+                uid: userUid
+            }).then(() => {
+                console.log('Joined lobby');
+                updateLobbyStatus('Joined Lobby');
+                monitorLobbyUsers();
+                const disconnectRef = ref(database, `lobbies/default/users/${userKey}`);
+                onDisconnect(disconnectRef).remove().then(() => {
+                    console.log('Disconnect operation set up for user');
+                }).catch((error) => {
+                    console.error('Error setting up disconnect operation:', error);
+                });
+            }).catch((error) => {
+                console.error('Error joining lobby:', error);
+            });
+        };
+
+        // Function to monitor users in the lobby
+        const monitorLobbyUsers = () => {
+            const lobbyUsersRef = ref(database, 'lobbies/default/users');
+            onValue(lobbyUsersRef, (snapshot) => {
+                const users = [];
+                snapshot.forEach((childSnapshot) => {
+                    const user = childSnapshot.val();
+                    users.push(user.uid);
+                });
+
+                console.log('Number of users in the lobby:', users.length);
+
+                // Update the lobby users list, excluding the current user
+                updateLobbyUsersList(users, userUid);
+
+                // Toggle visibility and enable/disable of "OK" and "No" buttons based on users count
+                const playGameHeading = document.getElementById('playGameHeading');
+                const playGameOKButton = document.getElementById('playGameOKButton');
+                const playGameNoButton = document.getElementById('playGameNoButton');
+
+                if (users.length === 2) {
+                    playGameHeading.style.display = 'block';
+                    playGameOKButton.style.display = 'inline-block';
+                    playGameNoButton.style.display = 'inline-block';
+                    playGameOKButton.disabled = false;
+                    playGameNoButton.disabled = false;
+                } else {
+                    playGameHeading.style.display = 'none';
+                    playGameOKButton.style.display = 'none';
+                    playGameNoButton.style.display = 'none';
+                    playGameOKButton.disabled = true;
+                    playGameNoButton.disabled = true;
+                }
+            });
+        };
+
+        // Function to update lobby status
+        const updateLobbyStatus = (status) => {
+            document.getElementById('lobbyStatus').innerText = `Status: ${status}`;
+        };
+
+        // Function to update the list of users in the lobby
+        const updateLobbyUsersList = (users, currentUserUid) => {
+            const usersListElement = document.getElementById('usersList');
+            const gameUsersListElement = document.getElementById('gameUsersList');
+            usersListElement.innerHTML = '';
+            gameUsersListElement.innerHTML = '';
+
+            users.forEach((uid) => {
+                const li = document.createElement('li');
+                li.textContent = uid;
+                usersListElement.appendChild(li);
+
+                if (users.length > 1 && uid !== currentUserUid) {
+                    const gameLi = document.createElement('li');
+                    gameLi.textContent = uid;
+                    gameUsersListElement.appendChild(gameLi);
+                }
+            });
+        };
+
+        // Function to start a countdown timer
+        const startCountdown = (startTime) => {
+            clearInterval(countdownInterval);
+            const countdownDisplay = document.getElementById('countdownDisplay');
+            countdownDisplay.style.display = 'block';
+            countdownInterval = setInterval(() => {
+                const currentTime = new Date().getTime();
+                const timeRemaining = Math.floor((startTime - currentTime) / 1000);
+                if (timeRemaining <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownDisplay.textContent = 'Time\'s up!';
+                    resetEverything();
+                } else {
+                    const minutes = Math.floor(timeRemaining / 60);
+                    let seconds = timeRemaining % 60;
+                    seconds = seconds < 10 ? '0' + seconds : seconds;
+                    countdownDisplay.textContent = `Countdown: ${minutes}:${seconds}`;
+                }
+            }, 1000);
+        };
+
+        // Function to update Firebase with the countdown start time
+        const updateCountdownStartTime = (startTime) => {
+            const countdownRef = ref(database, 'countdown');
+            set(countdownRef, {
+                startTime: startTime
+            }).then(() => {
+                console.log('Countdown start time written to Firebase');
+            }).catch((error) => {
+                console.error('Error writing countdown start time to Firebase:', error);
+            });
+        };
+
+        // Function to monitor countdown changes
+        const monitorCountdown = () => {
+            const countdownRef = ref(database, 'countdown');
+            onValue(countdownRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data && data.startTime) {
+                    startCountdown(data.startTime);
+                } else {
+                    // If startTime is null or undefined, stop the countdown
+                    stopCountdown();
+                }
+            });
+        };
+
+        // Function to stop the countdown
+        const stopCountdown = () => {
+            clearInterval(countdownInterval);
+            const countdownDisplay = document.getElementById('countdownDisplay');
+            countdownDisplay.textContent = 'Countdown Stopped';
+            countdownDisplay.style.display = 'block';
+            
+            // Re-enable the OK button
+            const playGameOKButton = document.getElementById('playGameOKButton');
+            playGameOKButton.disabled = false;
+        };
+
+        // Function to handle No button click and stop countdown
+        const handleNoButtonClick = () => {
+            // Remove the countdown data from Firebase
+            const countdownRef = ref(database, 'countdown');
+            remove(countdownRef).then(() => {
+                console.log('Countdown removed from Firebase');
+            }).catch((error) => {
+                console.error('Error removing countdown from Firebase:', error);
+            });
+
+            // Update the local display
+            stopCountdown();
+        };
+
+        // Function to handle OK button click and start countdown
+        const handleOKButtonClick = () => {
+            const startTime = new Date().getTime() + 5 * 60 * 1000; // 5 minutes countdown
+            updateCountdownStartTime(startTime);
+            const playGameOKButton = document.getElementById('playGameOKButton');
+            playGameOKButton.disabled = true;
+            notifyOtherScreen();
+        };
+
+        // Function to notify the other screen
+        const notifyOtherScreen = () => {
+            const notificationDisplay = document.getElementById('otherScreenNotification');
+            notificationDisplay.textContent = 'Accepting...';
+            notificationDisplay.style.color = 'green';
+        };
+
+        // Function to reset everything
+        const resetEverything = () => {
+            // Remove the countdown data from Firebase
+            const countdownRef = ref(database, 'countdown');
+            remove(countdownRef).then(() => {
+                console.log('Countdown removed from Firebase');
+            }).catch((error) => {
+                console.error('Error removing countdown from Firebase:', error);
+            });
+
+            // Reset local UI
+            const playGameHeading = document.getElementById('playGameHeading');
+            const playGameOKButton = document.getElementById('playGameOKButton');
+            const playGameNoButton = document.getElementById('playGameNoButton');
+            const otherScreenNotification = document.getElementById('otherScreenNotification');
+
+            playGameHeading.style.display = 'none';
+            playGameOKButton.style.display = 'none';
+            playGameNoButton.style.display = 'none';
+            playGameOKButton.disabled = true;
+            playGameNoButton.disabled = true;
+            otherScreenNotification.textContent = '';
+
+            // Re-enable joining the lobby
+            document.getElementById('joinLobbyButton').disabled = false;
+        };
+
+        // Event listeners for buttons
+        document.getElementById('joinLobbyButton').addEventListener('click', joinLobby);
+        document.getElementById('leaveLobbyButton').addEventListener('click', () => {
+            const userRef = ref(database, `lobbies/default/users/${userKey}`);
+            remove(userRef)
+                .then(() => {
+                    console.log('Left lobby');
+                    updateLobbyStatus('Left Lobby');
+                    resetEverything();
+                })
+                .catch((error) => {
+                    console.error('Error removing user:', error);
+                });
+        });
+        document.getElementById('playGameOKButton').addEventListener('click', handleOKButtonClick);
+        document.getElementById('playGameNoButton').addEventListener('click', handleNoButtonClick);
+
+        // Initial call to monitor lobby users
+        monitorLobbyUsers();
+    </script>
+</body>
+</html>

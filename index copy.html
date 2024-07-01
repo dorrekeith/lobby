@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Lobby System</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+        /* Hide OK and NO buttons initially */
+        #playGameOKButton, #playGameNoButton {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Firebase Lobby System</h1>
+    <div id="lobbySection">
+        <h2>Lobby</h2>
+        <p id="lobbyStatus">Status: Joining Lobby...</p>
+        <div id="lobbyUsers">
+            <h3>Users in Lobby:</h3>
+            <ul id="usersList"></ul>
+        </div>
+        <button id="joinLobbyButton">Join Lobby</button>
+        <button id="leaveLobbyButton">Leave Lobby</button>
+    </div>
+
+    <div id="displaySection">
+        <!-- 
+        <h2>Write and Read from Firebase</h2>
+        <button id="writeTimeButton">Write Current Time</button>
+        <br><br>
+        <textarea id="customText" placeholder="Write something here..."></textarea>
+        <br><br>
+        <button id="writeTextButton">Write Custom Text</button>
+        <br><br>
+        <p id="currentTimeDisplay">Current Time: Loading...</p>
+        <p id="customTextDisplay">Custom Text: Loading...</p>
+
+    -->
+
+        <!-- New buttons added below -->
+        <h2 id="playGameHeading">Want to play a game...?</h2>
+        <ul id="gameUsersList"></ul>
+        <button id="playGameOKButton" disabled>OK</button>
+        <button id="playGameNoButton" disabled>No</button>
+
+        <!-- Countdown display for each user -->
+        <p id="countdownDisplay">Waiting for start...</p>
+
+    </div>
+
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
+        import { getDatabase, ref, set, onValue, push, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+        // Firebase configuration
+        const firebaseConfig = {
+    apiKey: "AIzaSyAwlzvEV2Rz3Qg65ldJS9szYSrhIk7mmJc",
+    authDomain: "demolobby-e555b.firebaseapp.com",
+    databaseURL: "https://demolobby-e555b-default-rtdb.firebaseio.com",
+    projectId: "demolobby-e555b",
+    storageBucket: "demolobby-e555b.appspot.com",
+    messagingSenderId: "660754854141",
+    appId: "1:660754854141:web:9aa05a8ac9a7df1f57ce94",
+    measurementId: "G-6F3WBV9HHZ"
+};
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const database = getDatabase(app);
+        const auth = getAuth();
+
+        let userUid = null;
+        let userKey = null;
+        let countdownInterval;
+
+        // Anonymous Authentication
+        signInAnonymously(auth)
+            .then((userCredential) => {
+                userUid = userCredential.user.uid;
+                console.log('Signed in anonymously:', userUid);
+                updateLobbyStatus('Joining Lobby...');
+                joinLobby();
+            })
+            .catch((error) => {
+                console.error('Authentication failed:', error);
+            });
+
+        // onAuthStateChanged callback
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userUid = user.uid;
+                console.log('User signed in:', userUid);
+                monitorLobbyUsers();
+            } else {
+                userUid = null;
+                console.log('No user signed in');
+            }
+        });
+
+        // Function to write current time to Firebase
+        const writeCurrentTime = () => {
+            const currentTime = new Date().toLocaleString();
+            const timeRef = ref(database, `currentTime`);
+            set(timeRef, {
+                time: currentTime
+            }).then(() => {
+                console.log('Current time written to Firebase');
+            }).catch((error) => {
+                console.error('Error writing time to Firebase:', error);
+            });
+        };
+
+        // Function to write custom text to Firebase
+        const writeCustomText = () => {
+            const text = document.getElementById('customText').value;
+            if (text.trim() === "") {
+                alert("Please enter some text.");
+                return;
+            }
+            const textRef = ref(database, `customText`);
+            set(textRef, {
+                text: text
+            }).then(() => {
+                console.log('Custom text written to Firebase');
+            }).catch((error) => {
+                console.error('Error writing text to Firebase:', error);
+            });
+        };
+
+        // Function to read current time from Firebase
+        // const readCurrentTime = () => {
+        //     const timeRef = ref(database, 'currentTime');
+        //     onValue(timeRef, (snapshot) => {
+        //         const data = snapshot.val();
+        //         if (data) {
+        //             console.log('Current time from Firebase:', data.time);
+        //             document.getElementById('currentTimeDisplay').innerText = `Current Time: ${data.time}`;
+        //         }
+        //     }, {
+        //         onlyOnce: false
+        //     });
+        // };
+
+        // Function to read custom text from Firebase
+        // const readCustomText = () => {
+        //     const textRef = ref(database, 'customText');
+        //     onValue(textRef, (snapshot) => {
+        //         const data = snapshot.val();
+        //         if (data) {
+        //             console.log('Custom text from Firebase:', data.text);
+        //             document.getElementById('customTextDisplay').innerText = `Custom Text: ${data.text}`;
+        //         }
+        //     }, {
+        //         onlyOnce: false
+        //     });
+        // };
+
+        // Function to join the lobby
+        const joinLobby = () => {
+            const lobbyRef = ref(database, 'lobbies/default/users');
+            const userRef = push(lobbyRef);
+            userKey = userRef.key;
+            set(userRef, {
+                uid: userUid
+            }).then(() => {
+                console.log('Joined lobby');
+                updateLobbyStatus('Joined Lobby');
+                monitorLobbyUsers();
+                const disconnectRef = ref(database, `lobbies/default/users/${userKey}`);
+                onDisconnect(disconnectRef).remove().then(() => {
+                    console.log('Disconnect operation set up for user');
+                }).catch((error) => {
+                    console.error('Error setting up disconnect operation:', error);
+                });
+            }).catch((error) => {
+                console.error('Error joining lobby:', error);
+            });
+        };
+
+        // Function to monitor users in the lobby
+        const monitorLobbyUsers = () => {
+            const lobbyUsersRef = ref(database, 'lobbies/default/users');
+            onValue(lobbyUsersRef, (snapshot) => {
+                const users = [];
+                snapshot.forEach((childSnapshot) => {
+                    const user = childSnapshot.val();
+                    users.push(user.uid);
+                });
+
+                // Update the lobby users list, excluding the current user
+                updateLobbyUsersList(users, userUid);
+
+                // Toggle visibility of "Want to play a game...?" heading based on users count
+                const gameHeading = document.getElementById('playGameHeading');
+                const playGameOKButton = document.getElementById('playGameOKButton');
+                const playGameNoButton = document.getElementById('playGameNoButton');
+
+                if (users.length === 2) {
+                    gameHeading.style.display = 'block';
+                    playGameOKButton.style.display = 'inline-block';
+                    playGameNoButton.style.display = 'inline-block';
+                } else {
+                    gameHeading.style.display = 'none';
+                    playGameOKButton.style.display = 'none';
+                    playGameNoButton.style.display = 'none';
+                }
+            });
+        };
+
+        // Function to update lobby status
+        const updateLobbyStatus = (status) => {
+            document.getElementById('lobbyStatus').innerText = `Status: ${status}`;
+        };
+
+        // Function to update the list of users in the lobby
+        const updateLobbyUsersList = (users, currentUserUid) => {
+            const usersListElement = document.getElementById('usersList');
+            const gameUsersListElement = document.getElementById('gameUsersList');
+            usersListElement.innerHTML = '';
+            gameUsersListElement.innerHTML = '';
+
+            users.forEach((uid) => {
+                const li = document.createElement('li');
+                li.textContent = uid;
+                usersListElement.appendChild(li);
+
+                if (users.length > 1 && uid !== currentUserUid) {
+                    const gameLi = document.createElement('li');
+                    gameLi.textContent = uid;
+                    gameUsersListElement.appendChild(gameLi);
+                }
+            });
+
+            const gameHeading = document.getElementById('playGameHeading');
+            if (users.length === 2) {
+                gameHeading.style.display = 'block';
+                document.getElementById('playGameOKButton').style.display = 'inline-block';
+                document.getElementById('playGameNoButton').style.display = 'inline-block';
+            } else {
+                gameHeading.style.display = 'none';
+                document.getElementById('playGameOKButton').style.display = 'none';
+                document.getElementById('playGameNoButton').style.display = 'none';
+            }
+        };
+
+        // Event listeners for buttons
+       // document.getElementById('writeTimeButton').addEventListener('click', writeCurrentTime);
+        //document.getElementById('writeTextButton').addEventListener('click', writeCustomText); 
+        document.getElementById('joinLobbyButton').addEventListener('click', joinLobby);
+
+        // Function to leave the lobby
+        document.getElementById('leaveLobbyButton').addEventListener('click', () => {
+            const userRef = ref(database, `lobbies/default/users/${userKey}`);
+            remove(userRef)
+                .then(() => {
+                    console.log('Left lobby');
+                    updateLobbyStatus('Left Lobby');
+                })
+                .catch((error) => {
+                    console.error('Error leaving lobby:', error);
+                });
+        });
+
+        // Function to start a countdown timer
+        const startCountdown = (startTime) => {
+            const countdownDisplay = document.getElementById('countdownDisplay');
+            countdownInterval = setInterval(() => {
+                const currentTime = new Date().getTime();
+                const timeRemaining = Math.floor((startTime - currentTime) / 1000);
+                if (timeRemaining <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownDisplay.textContent = 'Countdown Finished';
+                } else {
+                    const minutes = Math.floor(timeRemaining / 60);
+                    let seconds = timeRemaining % 60;
+                    seconds = seconds < 10 ? '0' + seconds : seconds;
+                    countdownDisplay.textContent = `Countdown: ${minutes}:${seconds}`;
+                }
+            }, 1000);
+        };
+
+        // Function to update Firebase with the countdown start time
+        const updateCountdownStartTime = (startTime) => {
+            const countdownRef = ref(database, `countdown`);
+            set(countdownRef, {
+                startTime: startTime
+            }).then(() => {
+                console.log('Countdown start time written to Firebase');
+            }).catch((error) => {
+                console.error('Error writing countdown start time to Firebase:', error);
+            });
+        };
+
+        // Function to handle No button click and stop countdown
+        const handleNoButtonClick = () => {
+            clearInterval(countdownInterval);
+            const countdownDisplay = document.getElementById('countdownDisplay');
+            countdownDisplay.textContent = 'Countdown Stopped';
+        };
+
+        // Function to handle OK button click and start countdown
+        const handleOKButtonClick = () => {
+            const startTime = new Date().getTime() + 5 * 60 * 1000;
+            updateCountdownStartTime(startTime);
+            startCountdown(startTime);
+            const countdownDisplay = document.getElementById('countdownDisplay');
+            countdownDisplay.style.display = 'block';
+            const playGameOKButton = document.getElementById('playGameOKButton');
+            playGameOKButton.disabled = true;
+            notifyOtherScreen();
+        };
+
+        // Simulated function to notify the other screen
+        const notifyOtherScreen = () => {
+            const notificationDisplay = document.getElementById('otherScreenNotification');
+            notificationDisplay.textContent = 'Accepting...';
+            notificationDisplay.style.color = 'green';
+        };
+
+        // Event listeners for OK and NO buttons
+        document.getElementById('playGameOKButton').addEventListener('click', handleOKButtonClick);
+        document.getElementById('playGameNoButton').addEventListener('click', handleNoButtonClick);
+
+        // Initial calls to read functions
+        // readCurrentTime();
+        // readCustomText();
+        monitorLobbyUsers();
+    </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+// Firebase configuration
+const firebaseConfig = {
+    apiKey: "AIzaSyAwlzvEV2Rz3Qg65ldJS9szYSrhIk7mmJc",
+    authDomain: "demolobby-e555b.firebaseapp.com",
+    databaseURL: "https://demolobby-e555b-default-rtdb.firebaseio.com",
+    projectId: "demolobby-e555b",
+    storageBucket: "demolobby-e555b.appspot.com",
+    messagingSenderId: "660754854141",
+    appId: "1:660754854141:web:9aa05a8ac9a7df1f57ce94",
+    measurementId: "G-6F3WBV9HHZ"
+};
